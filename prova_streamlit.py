@@ -1,4 +1,20 @@
 import streamlit as st
+LEGNAME_CORRECT = "Mantra Dei Forti"
+
+# Pagina iniziale: richiesta nome lega
+if "lega_ok" not in st.session_state:
+    st.session_state["lega_ok"] = False
+
+if not st.session_state["lega_ok"]:
+    st.title("Benvenuto!")
+    lega_input = st.text_input("Inserisci il nome della lega per continuare:")
+    if st.button("Avanti"):
+        if lega_input == LEGNAME_CORRECT:
+            st.session_state["lega_ok"] = True
+            st.rerun()
+        else:
+            st.error("Nome lega non corretto. Riprova.")
+    st.stop()
 st.set_page_config(layout="wide")
 import pandas as pd
 import matplotlib.pyplot as plt
