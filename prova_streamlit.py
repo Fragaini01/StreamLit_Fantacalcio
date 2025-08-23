@@ -153,7 +153,9 @@ for idx, modulo in enumerate(list(moduli_mantra.keys())[:11]):
         ax.text(pos[0], pos[1]+0.2, display_text, ha='center', va='bottom', fontsize=16, fontweight='bold')
         ax.text(pos[0], pos[1]-0.5, role_text, ha='center', va='top', fontsize=13, color='black')
     totale = sum(squadra[squadra.In == 1]['Qt.A M']) if not squadra.empty else 0
-    ax.text(5, 10, f"Modulo: {modulo} (Totale: {totale})", ha='center', va='top', fontsize=18, fontweight='bold')
+    apply = 0
+    if modulo == "4-2-3-1" : apply = 2.2
+    ax.text(5, 10 + apply, f"Modulo: {modulo} (Totale: {totale})", ha='center', va='top', fontsize=18, fontweight='bold')
 
 
 fig.tight_layout()
