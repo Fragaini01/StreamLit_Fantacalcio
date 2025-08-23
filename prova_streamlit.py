@@ -19,6 +19,8 @@ st.set_page_config(layout="wide")
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import random
+
 
 # Carica dati
 @st.cache_data
@@ -62,6 +64,12 @@ moduli_positions = {
 
 
 st.title("Fanta Campetti - Visualizzatore Moduli")
+
+# Bottone per formazione casuale
+if st.button("Genera formazione casuale"):
+    portieri = data[data['RM_1'] == 'Por']['Nome'].sample(n=3, random_state=random.randint(0,10000)).tolist()
+    non_portieri = data[data['RM_1'] != 'Por']['Nome'].sample(n=22, random_state=random.randint(0,10000)).tolist()
+    st.session_state['nomi'] = portieri + non_portieri
 
 # Gestione lista giocatori
 if 'nomi' not in st.session_state:
