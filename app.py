@@ -23,7 +23,7 @@ st.set_page_config(page_title="Assistente Asta - Mantra", layout="wide")
 # Risorse condivise (cache)
 # ----------------------------------------------------------------------------
 @st.cache_resource
-def get_reference() -> fe.ReferenceData:
+def get_reference() -> fe.ReferenceData: 
     return fe.load_reference(WORKBOOK)
 
 

@@ -1,0 +1,12 @@
+# Deploy su Render come Web Service.
+# Un solo worker (piu' thread) per mantenere coerente il registro acquisti
+# condiviso su SQLite (il lock in-process di SQLitePurchaseStore serializza le
+# scritture e il file .db e' condiviso fra i thread dello stesso processo).
+# NB: il filesystem di Render e' effimero: acquisti.db si azzera ad ogni redeploy.
+services:
+  - type: web
+    name: assistente-asta-mantra
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn dash_app:server --workers 1 --threads 4 --timeout 120
