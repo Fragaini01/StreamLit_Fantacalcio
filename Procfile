@@ -1,1 +1,1 @@
-web: gunicorn dash_app:server --workers 1 --threads 4 --timeout 120
+web: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true

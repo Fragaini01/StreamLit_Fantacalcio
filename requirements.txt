@@ -1,6 +1,4 @@
 streamlit
-dash
-gunicorn
 matplotlib
 pandas
 openpyxl
