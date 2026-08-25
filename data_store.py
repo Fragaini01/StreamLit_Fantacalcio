@@ -33,6 +33,9 @@ class PurchaseStore(Protocol):
     def remove_purchase(self, purchase_id: int) -> None: ...
     def exists(self, nome: str) -> bool: ...
     def clear(self) -> None: ...
+    def get_team_names(self) -> dict[str, str]: ...
+    def set_team_name(self, orig: str, custom: str) -> None: ...
+    def clear_team_names(self) -> None: ...
 
 
 class SQLitePurchaseStore:
@@ -53,6 +56,10 @@ class SQLitePurchaseStore:
                 nome_key TEXT   NOT NULL UNIQUE
             )
             """
+        )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS team_names ("
+            "orig TEXT PRIMARY KEY, custom TEXT NOT NULL)"
         )
         self._conn.commit()
 
@@ -95,6 +102,28 @@ class SQLitePurchaseStore:
     def clear(self) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM acquisti")
+            self._conn.commit()
+
+    # -- nomi squadre (override persistente) ---------------------------
+    def get_team_names(self) -> dict[str, str]:
+        with self._lock:
+            rows = self._conn.execute("SELECT orig, custom FROM team_names").fetchall()
+        return {r["orig"]: r["custom"] for r in rows}
+
+    def set_team_name(self, orig: str, custom: str) -> None:
+        orig = orig.strip()
+        custom = custom.strip()
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO team_names (orig, custom) VALUES (?, ?) "
+                "ON CONFLICT(orig) DO UPDATE SET custom = excluded.custom",
+                (orig, custom),
+            )
+            self._conn.commit()
+
+    def clear_team_names(self) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM team_names")
             self._conn.commit()
 
 

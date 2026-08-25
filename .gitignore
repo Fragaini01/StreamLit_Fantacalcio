@@ -1,14 +1,14 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
+.pytest_cache/
 
-# Virtual env
+# Ambienti / editor
 .venv/
-venv/
-
-# Editor
 .vscode/
 
-# Local runtime data (ephemeral auction DB)
+# Database effimero (rigenerato a runtime)
 acquisti.db
+
+# File temporanei Excel
+.~*.xlsm

@@ -7,6 +7,9 @@ Il motore di calcolo e' in fanta_engine.py, la persistenza in data_store.py.
 
 from __future__ import annotations
 
+from html import escape
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import streamlit as st
 
@@ -17,6 +20,61 @@ LEGA_NAME = "Mantra Dei Forti"
 WORKBOOK = "Asta_Mantra.xlsm"
 
 st.set_page_config(page_title="Assistente Asta - Mantra", layout="wide")
+
+
+# --------------------------------------------------------------------------
+# Colori ruoli (schema Mantra) e loghi squadre Serie A
+# --------------------------------------------------------------------------
+ROLE_COLORS = {
+    "Por": "#E8A33D",   # portiere
+    "Dd": "#3E9E5B",    # difensori
+    "Ds": "#3E9E5B",
+    "Dc": "#2E7D46",
+    "B": "#66B981",
+    "E": "#00A0B0",     # centrocampo / esterni
+    "M": "#2C7FB8",
+    "C": "#1F5FA6",
+    "W": "#8E44AD",     # ali
+    "T": "#8E44AD",     # trequartista
+    "A": "#B71C1C",     # attaccanti
+    "Pc": "#B71C1C",
+}
+DEFAULT_ROLE_COLOR = "#666666"
+
+LOGO_DIR = Path(__file__).parent / "static" / "logos"
+AVAILABLE_LOGOS = {p.stem for p in LOGO_DIR.glob("*.png")} if LOGO_DIR.exists() else set()
+
+
+def role_badge(role: str, rating: float | None = None) -> str:
+    if not role:
+        return ""
+    color = ROLE_COLORS.get(role, DEFAULT_ROLE_COLOR)
+    label = role if rating is None else f"{role} {rating:.1f}"
+    return (
+        f"<span style='background:{color};color:#fff;padding:2px 6px;"
+        f"border-radius:4px;font-size:12px;font-weight:600;"
+        f"display:inline-block;margin:1px'>{escape(label)}</span>"
+    )
+
+
+def logo_img_html(team: str, height: int = 20) -> str:
+    if team and team in AVAILABLE_LOGOS:
+        return (
+            f"<img src='app/static/logos/{team}.png' alt='{escape(team)}' "
+            f"style='height:{height}px;vertical-align:middle;margin-right:6px'>"
+        )
+    return ""
+
+
+def html_table(headers: list[str], rows_html: list[str]) -> str:
+    head = "".join(f"<th style='text-align:left;padding:6px 8px'>{h}</th>" for h in headers)
+    body = "".join(rows_html)
+    return (
+        "<style>.ftbl{width:100%;border-collapse:collapse}"
+        ".ftbl td{padding:4px 8px;border-bottom:1px solid #eee;vertical-align:middle}"
+        ".ftbl th{border-bottom:2px solid #ccc}</style>"
+        f"<table class='ftbl'><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -42,17 +100,41 @@ def purchases_as_dicts(store: SQLitePurchaseStore) -> list[dict]:
 # ----------------------------------------------------------------------------
 # Gate nome lega
 # ----------------------------------------------------------------------------
-def lega_gate() -> bool:
-    if st.session_state.get("lega_ok"):
+def login_gate(ref: fe.ReferenceData, store: SQLitePurchaseStore) -> bool:
+    """Login a due ruoli: Master (password lega) o Giocatore (nome squadra)."""
+    if st.session_state.get("role"):
         return True
+
     st.title("Benvenuto!")
-    lega_input = st.text_input("Inserisci il nome della lega per continuare:")
-    if st.button("Avanti"):
-        if lega_input == LEGA_NAME:
-            st.session_state["lega_ok"] = True
+    ruolo = st.radio("Accedi come", ["Giocatore", "Master"], horizontal=True)
+
+    if ruolo == "Master":
+        pwd = st.text_input("Password della lega", type="password")
+        if st.button("Entra come Master"):
+            if pwd == LEGA_NAME:
+                st.session_state["role"] = "master"
+                st.rerun()
+            else:
+                st.error("Password non corretta. Riprova.")
+    else:
+        overrides = store.get_team_names()  # orig -> custom
+        taken = set(overrides.keys())
+        liberi = [t for t in ref.teams if t not in taken]
+        if not liberi:
+            st.error("Nessuna squadra disponibile: sono tutte assegnate.")
+            return False
+        team = st.selectbox(
+            "Scegli la tua squadra",
+            liberi,
+            format_func=lambda t: overrides.get(t, t),
+        )
+        st.caption("Dopo l'accesso potrai rinominare la tua squadra dalla barra laterale.")
+        if st.button("Entra"):
+            store.set_team_name(team, overrides.get(team, team))
+            st.session_state["role"] = "player"
+            st.session_state["player_team"] = team
+            st.session_state["player_name"] = overrides.get(team, team)
             st.rerun()
-        else:
-            st.error("Nome lega non corretto. Riprova.")
     return False
 
 
@@ -108,18 +190,48 @@ def draw_pitch(pitch: list[fe.PitchSlot], module_name: str):
 # ----------------------------------------------------------------------------
 # Pagine
 # ----------------------------------------------------------------------------
-def page_registra(ref: fe.ReferenceData, store: SQLitePurchaseStore, my_team: str):
+def page_registra(ref: fe.ReferenceData, store: SQLitePurchaseStore, my_team: str, role: str):
     st.header("Registra un acquisto")
+    overrides = store.get_team_names()
+    disp = lambda t: overrides.get(t, t)
+    giocatori = {}
+    for pl in ref.players:
+        if pl.fuori_lista or pl.nome in giocatori:
+            continue
+        giocatori[pl.nome] = pl
+    nomi_giocatori = sorted(giocatori)
+
+    def fmt_giocatore(n: str) -> str:
+        pl = giocatori[n]
+        ruoli = "/".join(
+            fe.RUOLI[i] for i in range(fe.NUM_RUOLI) if pl.ratings[i] >= 0
+        )
+        extra = " · ".join(x for x in (ruoli, pl.squadra_reale) if x)
+        return f"{n} · {extra}" if extra else n
+
     with st.form("registra", clear_on_submit=True):
         col1, col2, col3 = st.columns([3, 2, 1])
-        nome = col1.text_input("Giocatore")
-        squadra = col2.selectbox("Squadra", ref.teams, index=ref.teams.index(my_team))
+        nome = col1.selectbox(
+            "Giocatore",
+            options=nomi_giocatori,
+            index=None,
+            placeholder="Digita per cercare...",
+            format_func=fmt_giocatore,
+        )
+        if role == "master":
+            squadra = col2.selectbox(
+                "Squadra", ref.teams, index=ref.teams.index(my_team), format_func=disp
+            )
+        else:
+            squadra = col2.selectbox(
+                "Squadra", [my_team], format_func=disp, disabled=True
+            )
         costo = col3.number_input("Costo", min_value=0, max_value=fe.CREDITI, value=1, step=1)
         submitted = st.form_submit_button("Registra")
     if submitted:
         try:
             p = validate_and_add(store, ref, nome, squadra, costo)
-            st.success(f"Registrato: {p.nome} -> {p.squadra} ({int(p.costo)})")
+            st.success(f"Registrato: {p.nome} -> {disp(p.squadra)} ({int(p.costo)})")
         except ValidationError as exc:
             st.error(str(exc))
             simili = [
@@ -136,15 +248,17 @@ def page_registra(ref: fe.ReferenceData, store: SQLitePurchaseStore, my_team: st
     for p in purchases:
         c1, c2, c3, c4 = st.columns([3, 2, 1, 1])
         c1.write(p.nome)
-        c2.write(p.squadra)
+        c2.write(disp(p.squadra))
         c3.write(int(p.costo))
-        if c4.button("Rimuovi", key=f"del_{p.id}"):
+        can_remove = role == "master" or p.squadra == my_team
+        if can_remove and c4.button("Rimuovi", key=f"del_{p.id}"):
             store.remove_purchase(p.id)
             st.rerun()
 
 
 def page_dashboard(ref: fe.ReferenceData, store: SQLitePurchaseStore, my_team: str):
-    st.header(f"Dashboard - {my_team}")
+    nome_sq = store.get_team_names().get(my_team, my_team)
+    st.header(f"Dashboard - {nome_sq}")
     res = fe.compute_dashboard(ref, purchases_as_dicts(store), my_team)
 
     m1, m2, m3, m4 = st.columns(4)
@@ -161,58 +275,65 @@ def page_dashboard(ref: fe.ReferenceData, store: SQLitePurchaseStore, my_team: s
     if not res.module_ranking:
         return
 
-    st.subheader("Classifica moduli")
-    st.dataframe(
-        [
-            {
-                "Modulo": m.nome,
-                "Totale": m.total,
-                "Media": round(m.total / fe.NSLOT, 2),
-                "Coperti": m.covered,
-                "Scoperti": m.uncovered,
-            }
-            for m in res.module_ranking
-        ],
-        hide_index=True,
-        use_container_width=True,
-    )
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Classifica moduli")
+        st.dataframe(
+            [
+                {
+                    "Modulo": m.nome,
+                    "Totale": m.total,
+                    "Media": round(m.total / fe.NSLOT, 2),
+                    "Coperti": m.covered,
+                    "Scoperti": m.uncovered,
+                }
+                for m in res.module_ranking
+            ],
+            hide_index=True,
+            use_container_width=True,
+        )
 
-    st.subheader(f"Formazione tipo - {res.best_module}  (totale {res.formation_total:.2f})")
-    st.dataframe(
-        [
-            {
-                "Slot": f.slot_text,
-                "Giocatore": f.player_name or "(scoperto)",
-                "Sq. reale": f.squadra_reale or "",
-                "Ruolo": f.role or "",
-                "Rating": f.points if f.covered else "",
-            }
-            for f in res.formation
-        ],
-        hide_index=True,
-        use_container_width=True,
-    )
+    with col2:
+        st.subheader(f"Formazione tipo - {res.best_module}  (totale {res.formation_total:.2f})")
+        st.markdown(
+            html_table(
+                ["Slot", "Giocatore", "Sq. reale", "Ruolo", "Rating"],
+                [
+                    "<tr>"
+                    f"<td>{' '.join(role_badge(r) for r in f.slot_text.split('/'))}</td>"
+                    f"<td>{escape(f.player_name) if f.player_name else '(scoperto)'}</td>"
+                    f"<td style='white-space:nowrap'>{logo_img_html(f.squadra_reale or '')}{escape(f.squadra_reale or '')}</td>"
+                    f"<td>{role_badge(f.role) if f.role else ''}</td>"
+                    f"<td>{f.points if f.covered else ''}</td>"
+                    "</tr>"
+                    for f in res.formation
+                ],
+            ),
+            unsafe_allow_html=True,
+        )
 
     st.subheader("Scarsita' per ruolo (giocatori ancora liberi)")
-    st.dataframe(
-        [
-            {
-                "Ruolo": s.role,
-                "Migliore libero": s.top_name or "-",
-                "Rating": s.top_rating if s.top_name else "",
-                "Liberi": s.liberi,
-                ">=8": s.n8,
-                ">=7": s.n7,
-            }
-            for s in res.scarcity
-        ],
-        hide_index=True,
-        use_container_width=True,
+    st.markdown(
+        html_table(
+            ["Ruolo", "Migliore libero", "Rating", "Liberi", ">=8", ">=7"],
+            [
+                "<tr>"
+                f"<td>{role_badge(s.role)}</td>"
+                f"<td>{escape(s.top_name) if s.top_name else '-'}</td>"
+                f"<td>{s.top_rating if s.top_name else ''}</td>"
+                f"<td>{s.liberi}</td><td>{s.n8}</td><td>{s.n7}</td>"
+                "</tr>"
+                for s in res.scarcity
+            ],
+        ),
+        unsafe_allow_html=True,
     )
 
 
 def page_campetto(ref: fe.ReferenceData, store: SQLitePurchaseStore, my_team: str):
-    st.header(f"Campetto - {my_team}")
+    nome_sq = store.get_team_names().get(my_team, my_team)
+    st.header(f"Campetto - {nome_sq}")
     state = fe.build_state(ref, purchases_as_dicts(store), my_team)
     if not state.rosa:
         st.info("Nessun giocatore in rosa: registra gli acquisti.")
@@ -232,54 +353,153 @@ def page_campetto(ref: fe.ReferenceData, store: SQLitePurchaseStore, my_team: st
     st.write(", ".join(fuori) if fuori else "nessuno")
 
 
-def page_listone(ref: fe.ReferenceData):
+def page_listone(ref: fe.ReferenceData, store: SQLitePurchaseStore):
     st.header("Listone")
-    query = st.text_input("Cerca giocatore")
-    rows = []
+    overrides = store.get_team_names()
+    taken = {p.nome.lower(): p.squadra for p in store.list_purchases()}
+
+    col_q, col_r, col_s, col_t = st.columns([2, 2, 2, 2])
+    query = col_q.text_input("Cerca giocatore")
+    ruoli_sel = col_r.multiselect("Ruoli", fe.RUOLI)
+    squadre = sorted({pl.squadra_reale for pl in ref.players if pl.squadra_reale})
+    squadre_sel = col_s.multiselect("Squadra reale", squadre)
+    stato_sel = col_t.selectbox("Stato", ["Tutti", "Liberi", "Presi"])
+
+    rows_html = []
     for pl in ref.players:
         if query and query.lower() not in pl.nome.lower():
             continue
-        ruoli = {fe.RUOLI[i]: pl.ratings[i] for i in range(fe.NUM_RUOLI) if pl.ratings[i] >= 0}
-        rows.append(
-            {
-                "Nome": pl.nome,
-                "Sq.": pl.squadra_reale,
-                "Fuori lista": "si" if pl.fuori_lista else "",
-                "Ruoli": ", ".join(f"{k} {v:.1f}" for k, v in ruoli.items()),
-            }
+        if squadre_sel and pl.squadra_reale not in squadre_sel:
+            continue
+        pl_ruoli = [fe.RUOLI[i] for i in range(fe.NUM_RUOLI) if pl.ratings[i] >= 0]
+        if ruoli_sel and not any(r in ruoli_sel for r in pl_ruoli):
+            continue
+        preso_da = taken.get(pl.nome.lower())
+        is_taken = preso_da is not None
+        if stato_sel == "Liberi" and is_taken:
+            continue
+        if stato_sel == "Presi" and not is_taken:
+            continue
+        if is_taken:
+            nome_sq = overrides.get(preso_da, preso_da)
+            stato_cell = (
+                "<span style='background:#c62828;color:#fff;padding:2px 6px;"
+                "border-radius:4px;font-size:12px;font-weight:600'>"
+                f"{escape(nome_sq)}</span>"
+            )
+        else:
+            stato_cell = (
+                "<span style='background:#2e7d32;color:#fff;padding:2px 6px;"
+                "border-radius:4px;font-size:12px;font-weight:600'>libero</span>"
+            )
+        ruoli = " ".join(
+            role_badge(fe.RUOLI[i], pl.ratings[i])
+            for i in range(fe.NUM_RUOLI)
+            if pl.ratings[i] >= 0
         )
-    st.caption(f"{len(rows)} giocatori")
-    st.dataframe(rows, hide_index=True, use_container_width=True)
+        squadra = f"{logo_img_html(pl.squadra_reale)}{escape(pl.squadra_reale or '')}"
+        rows_html.append(
+            f"<tr><td>{escape(pl.nome)}</td>"
+            f"<td style='white-space:nowrap'>{squadra}</td>"
+            f"<td>{ruoli}</td>"
+            f"<td style='white-space:nowrap'>{stato_cell}</td></tr>"
+        )
+    st.caption(f"{len(rows_html)} giocatori")
+    st.markdown(
+        html_table(["Nome", "Squadra reale", "Ruoli", "Stato"], rows_html),
+        unsafe_allow_html=True,
+    )
 
 
 # ----------------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------------
 def main():
-    if not lega_gate():
-        st.stop()
-
     ref = get_reference()
     store = get_store()
 
+    if not login_gate(ref, store):
+        st.stop()
+
+    role = st.session_state["role"]
+    overrides = store.get_team_names()
+    disp = lambda t: overrides.get(t, t)
+
     st.sidebar.title("Assistente Asta Mantra")
-    my_team = st.sidebar.selectbox(
-        "La mia squadra",
-        ref.teams,
-        index=ref.teams.index(ref.my_team) if ref.my_team in ref.teams else 0,
-    )
+
+    if role == "master":
+        st.sidebar.caption("Ruolo: Master")
+        my_team = st.sidebar.selectbox(
+            "La mia squadra",
+            ref.teams,
+            index=ref.teams.index(ref.my_team) if ref.my_team in ref.teams else 0,
+            format_func=disp,
+        )
+    else:
+        my_team = st.session_state["player_team"]
+        st.sidebar.caption(f"Ruolo: Giocatore - {disp(my_team)}")
+        with st.sidebar.expander("Rinomina la tua squadra"):
+            nuovo = st.text_input("Nuovo nome squadra", value=disp(my_team))
+            if st.button("Salva nome"):
+                nuovo_clean = (nuovo or "").strip()
+                altri = {disp(t).casefold() for t in ref.teams if t != my_team}
+                if not nuovo_clean:
+                    st.error("Il nome non puo' essere vuoto.")
+                elif nuovo_clean.casefold() in altri:
+                    st.error("Nome gia' in uso da un'altra squadra.")
+                else:
+                    store.set_team_name(my_team, nuovo_clean)
+                    st.session_state["player_name"] = nuovo_clean
+                    st.success("Nome squadra aggiornato.")
+                    st.rerun()
+
     page = st.sidebar.radio(
         "Pagina", ["Dashboard", "Registra acquisto", "Campetto", "Listone"]
     )
 
+    if role == "master":
+        st.sidebar.divider()
+        with st.sidebar.expander("Rinomina squadre"):
+            target = st.selectbox(
+                "Squadra", ref.teams, format_func=disp, key="rin_target"
+            )
+            nuovo_nome = st.text_input("Nuovo nome", value=disp(target), key="rin_nome")
+            if st.button("Rinomina squadra"):
+                nn = (nuovo_nome or "").strip()
+                altri = {disp(t).casefold() for t in ref.teams if t != target}
+                if not nn:
+                    st.error("Il nome non puo' essere vuoto.")
+                elif nn.casefold() in altri:
+                    st.error("Nome gia' in uso da un'altra squadra.")
+                else:
+                    store.set_team_name(target, nn)
+                    st.success("Squadra rinominata.")
+                    st.rerun()
+        with st.sidebar.expander("Amministrazione asta"):
+            st.caption("Termina l'asta: cancella acquisti e nomi squadre.")
+            conferma = st.checkbox("Confermo di voler azzerare tutto")
+            if st.button(
+                "Termina asta e azzera tutto", type="primary", disabled=not conferma
+            ):
+                store.clear()
+                store.clear_team_names()
+                st.success("Asta terminata: tutto azzerato.")
+                st.rerun()
+
+    st.sidebar.divider()
+    if st.sidebar.button("Esci"):
+        for k in ("role", "player_team", "player_name"):
+            st.session_state.pop(k, None)
+        st.rerun()
+
     if page == "Dashboard":
         page_dashboard(ref, store, my_team)
     elif page == "Registra acquisto":
-        page_registra(ref, store, my_team)
+        page_registra(ref, store, my_team, role)
     elif page == "Campetto":
         page_campetto(ref, store, my_team)
     else:
-        page_listone(ref)
+        page_listone(ref, store)
 
 
 if __name__ == "__main__":
