@@ -36,6 +36,8 @@ class PurchaseStore(Protocol):
     def get_team_names(self) -> dict[str, str]: ...
     def set_team_name(self, orig: str, custom: str) -> None: ...
     def clear_team_names(self) -> None: ...
+    def get_notes(self, owner: str) -> dict[str, str]: ...
+    def set_note(self, owner: str, nome: str, nota: str) -> None: ...
 
 
 class SQLitePurchaseStore:
@@ -60,6 +62,11 @@ class SQLitePurchaseStore:
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS team_names ("
             "orig TEXT PRIMARY KEY, custom TEXT NOT NULL)"
+        )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS notes ("
+            "owner TEXT NOT NULL, nome TEXT NOT NULL, nota TEXT NOT NULL, "
+            "PRIMARY KEY (owner, nome))"
         )
         self._conn.commit()
 
@@ -126,6 +133,31 @@ class SQLitePurchaseStore:
             self._conn.execute("DELETE FROM team_names")
             self._conn.commit()
 
+    # -- note private per manager --------------------------------------
+    def get_notes(self, owner: str) -> dict[str, str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT nome, nota FROM notes WHERE owner = ?", (owner,)
+            ).fetchall()
+        return {r["nome"]: r["nota"] for r in rows}
+
+    def set_note(self, owner: str, nome: str, nota: str) -> None:
+        owner = owner.strip()
+        nome = nome.strip()
+        nota = (nota or "").strip()
+        with self._lock:
+            if not nota:
+                self._conn.execute(
+                    "DELETE FROM notes WHERE owner = ? AND nome = ?", (owner, nome)
+                )
+            else:
+                self._conn.execute(
+                    "INSERT INTO notes (owner, nome, nota) VALUES (?, ?, ?) "
+                    "ON CONFLICT(owner, nome) DO UPDATE SET nota = excluded.nota",
+                    (owner, nome, nota),
+                )
+            self._conn.commit()
+
 
 # ----------------------------------------------------------------------------
 # Validazione (porting di SvuotaInserimento)
@@ -140,6 +172,7 @@ def validate_and_add(
     nome: str,
     squadra: str,
     costo,
+    budget: float | None = None,
 ) -> Purchase:
     """Valida un acquisto come la macro VBA e lo registra.
 
@@ -168,5 +201,12 @@ def validate_and_add(
 
     if store.exists(canonical):
         raise ValidationError(f'"{canonical}" e\' gia\' stato registrato.')
+
+    if budget is not None:
+        spesa = sum(p.costo for p in store.list_purchases() if p.squadra == squadra)
+        if spesa + costo_val > budget:
+            raise ValidationError(
+                f'Crediti insufficienti: hai {int(budget - spesa)} crediti residui.'
+            )
 
     return store.add_purchase(canonical, squadra, costo_val)
