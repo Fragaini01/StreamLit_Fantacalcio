@@ -159,8 +159,15 @@ class SQLitePurchaseStore:
             self._conn.commit()
 
     # -- autenticazione giocatori --------------------------------------
+    def _ensure_auth_table(self) -> None:
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS player_auth ("
+            "player TEXT PRIMARY KEY, pwd_hash TEXT NOT NULL)"
+        )
+
     def get_password_hash(self, player: str) -> Optional[str]:
         with self._lock:
+            self._ensure_auth_table()
             row = self._conn.execute(
                 "SELECT pwd_hash FROM player_auth WHERE player = ?", (player.strip(),)
             ).fetchone()
@@ -168,6 +175,7 @@ class SQLitePurchaseStore:
 
     def set_password(self, player: str, password: str) -> None:
         with self._lock:
+            self._ensure_auth_table()
             self._conn.execute(
                 "INSERT INTO player_auth (player, pwd_hash) VALUES (?, ?) "
                 "ON CONFLICT(player) DO UPDATE SET pwd_hash = excluded.pwd_hash",
@@ -181,6 +189,7 @@ class SQLitePurchaseStore:
 
     def clear_passwords(self) -> None:
         with self._lock:
+            self._ensure_auth_table()
             self._conn.execute("DELETE FROM player_auth")
             self._conn.commit()
 

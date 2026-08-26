@@ -102,10 +102,11 @@ def purchases_as_dicts(store: SQLitePurchaseStore) -> list[dict]:
 # ----------------------------------------------------------------------------
 PLAYERS = ["Francesco", "Filippo", "Bruno", "Remo", "Vieri", "Niccolo", "Leo", "Lorenzo"]
 MANAGER = "Francesco"
+MANAGER_PWD = "Mandarin0"
 
 
 def login_gate(ref: fe.ReferenceData, store: SQLitePurchaseStore) -> bool:
-    """Login per 8 giocatori. Francesco e' il manager (password = nome).
+    """Login per 8 giocatori. Francesco e' il manager (password fissa).
 
     Gli altri, al primo accesso, scelgono password e nome squadra; poi rientrano
     con la password scelta.
@@ -130,7 +131,7 @@ def login_gate(ref: fe.ReferenceData, store: SQLitePurchaseStore) -> bool:
     if player == MANAGER:
         pwd = st.text_input("Password", type="password")
         if st.button("Entra"):
-            if pwd == MANAGER:
+            if pwd == MANAGER_PWD:
                 _login("master")
             else:
                 st.error("Password non corretta. Riprova.")
