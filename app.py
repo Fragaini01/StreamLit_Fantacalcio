@@ -100,41 +100,66 @@ def purchases_as_dicts(store: SQLitePurchaseStore) -> list[dict]:
 # ----------------------------------------------------------------------------
 # Gate nome lega
 # ----------------------------------------------------------------------------
+PLAYERS = ["Francesco", "Filippo", "Bruno", "Remo", "Vieri", "Niccolo", "Leo", "Lorenzo"]
+MANAGER = "Francesco"
+
+
 def login_gate(ref: fe.ReferenceData, store: SQLitePurchaseStore) -> bool:
-    """Login a due ruoli: Master (password lega) o Giocatore (nome squadra)."""
+    """Login per 8 giocatori. Francesco e' il manager (password = nome).
+
+    Gli altri, al primo accesso, scelgono password e nome squadra; poi rientrano
+    con la password scelta.
+    """
     if st.session_state.get("role"):
         return True
 
-    st.title("Benvenuto!")
-    ruolo = st.radio("Accedi come", ["Giocatore", "Master"], horizontal=True)
+    overrides = store.get_team_names()
+    team_of = dict(zip(PLAYERS, ref.teams))
 
-    if ruolo == "Master":
-        pwd = st.text_input("Password della lega", type="password")
-        if st.button("Entra come Master"):
-            if pwd == LEGA_NAME:
-                st.session_state["role"] = "master"
-                st.rerun()
+    st.title("Benvenuto!")
+    player = st.selectbox("Chi sei?", PLAYERS)
+    team = team_of.get(player, ref.teams[0])
+
+    def _login(role: str) -> None:
+        st.session_state["role"] = role
+        st.session_state["player_id"] = player
+        st.session_state["player_team"] = team
+        st.session_state["player_name"] = store.get_team_names().get(team, player)
+        st.rerun()
+
+    if player == MANAGER:
+        pwd = st.text_input("Password", type="password")
+        if st.button("Entra"):
+            if pwd == MANAGER:
+                _login("master")
             else:
                 st.error("Password non corretta. Riprova.")
+        return False
+
+    stored = store.get_password_hash(player)
+    if stored is None:
+        st.info("Primo accesso: scegli una password e il nome della tua squadra.")
+        pwd1 = st.text_input("Scegli una password", type="password")
+        pwd2 = st.text_input("Conferma password", type="password")
+        team_name = st.text_input("Nome della squadra", value=overrides.get(team, ""))
+        if st.button("Registrati ed entra"):
+            if not pwd1:
+                st.error("La password non puo' essere vuota.")
+            elif pwd1 != pwd2:
+                st.error("Le due password non coincidono.")
+            elif not team_name.strip():
+                st.error("Inserisci il nome della squadra.")
+            else:
+                store.set_password(player, pwd1)
+                store.set_team_name(team, team_name.strip())
+                _login("player")
     else:
-        overrides = store.get_team_names()  # orig -> custom
-        taken = set(overrides.keys())
-        liberi = [t for t in ref.teams if t not in taken]
-        if not liberi:
-            st.error("Nessuna squadra disponibile: sono tutte assegnate.")
-            return False
-        team = st.selectbox(
-            "Scegli la tua squadra",
-            liberi,
-            format_func=lambda t: overrides.get(t, t),
-        )
-        st.caption("Dopo l'accesso potrai rinominare la tua squadra dalla barra laterale.")
+        pwd = st.text_input("Password", type="password")
         if st.button("Entra"):
-            store.set_team_name(team, overrides.get(team, team))
-            st.session_state["role"] = "player"
-            st.session_state["player_team"] = team
-            st.session_state["player_name"] = overrides.get(team, team)
-            st.rerun()
+            if store.verify_password(player, pwd):
+                _login("player")
+            else:
+                st.error("Password non corretta. Riprova.")
     return False
 
 
@@ -791,12 +816,13 @@ def main():
             ):
                 store.clear()
                 store.clear_team_names()
+                store.clear_passwords()
                 st.success("Asta terminata: tutto azzerato.")
                 st.rerun()
 
     st.sidebar.divider()
     if st.sidebar.button("Esci"):
-        for k in ("role", "player_team", "player_name"):
+        for k in ("role", "player_id", "player_team", "player_name"):
             st.session_state.pop(k, None)
         st.rerun()
 

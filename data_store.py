@@ -158,6 +158,32 @@ class SQLitePurchaseStore:
                 )
             self._conn.commit()
 
+    # -- autenticazione giocatori --------------------------------------
+    def get_password_hash(self, player: str) -> Optional[str]:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT pwd_hash FROM player_auth WHERE player = ?", (player.strip(),)
+            ).fetchone()
+        return row["pwd_hash"] if row else None
+
+    def set_password(self, player: str, password: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO player_auth (player, pwd_hash) VALUES (?, ?) "
+                "ON CONFLICT(player) DO UPDATE SET pwd_hash = excluded.pwd_hash",
+                (player.strip(), _hash_password(password)),
+            )
+            self._conn.commit()
+
+    def verify_password(self, player: str, password: str) -> bool:
+        stored = self.get_password_hash(player)
+        return stored is not None and stored == _hash_password(password)
+
+    def clear_passwords(self) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM player_auth")
+            self._conn.commit()
+
 
 # ----------------------------------------------------------------------------
 # Validazione (porting di SvuotaInserimento)
