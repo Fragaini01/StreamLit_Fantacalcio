@@ -155,7 +155,7 @@ def _pitch_positions(module_name: str) -> list[tuple[float, float]]:
 
 
 def draw_pitch(pitch: list[fe.PitchSlot], module_name: str):
-    fig, ax = plt.subplots(figsize=(8, 10))
+    fig, ax = plt.subplots(figsize=(4.5, 5.5))
     ax.set_facecolor("#2e8b57")
     ax.set_xlim(0, 10)
     ax.set_ylim(0, 11)
@@ -168,15 +168,13 @@ def draw_pitch(pitch: list[fe.PitchSlot], module_name: str):
     positions = _pitch_positions(module_name)
     for slot, (x, y) in zip(pitch, positions):
         covered = slot.starter_name is not None
-        ax.plot(x, y, "o", markersize=34, color="#d62728" if covered else "#888888",
+        ax.plot(x, y, "o", markersize=22, color="#d62728" if covered else "#888888",
                 markeredgecolor="white", markeredgewidth=1.5, zorder=3)
         if covered:
             ax.text(x, y + 0.45, slot.starter_name, ha="center", va="bottom",
-                    fontsize=9, fontweight="bold", color="white", zorder=4)
-            label = f"{slot.starter_role} {slot.starter_points:.1f}"
-        else:
-            label = slot.slot_text
-        ax.text(x, y - 0.55, label, ha="center", va="top", fontsize=8, color="white", zorder=4)
+                    fontsize=7, fontweight="bold", color="white", zorder=4)
+        label = slot.slot_text
+        ax.text(x, y - 0.55, label, ha="center", va="top", fontsize=7, color="white", zorder=4)
         if slot.subs:
             subs_txt = "\n".join(f"{n} ({r:.1f})" for n, r in slot.subs)
             ax.text(x, y - 0.95, subs_txt, ha="center", va="top", fontsize=6,
@@ -200,9 +198,10 @@ def registra_form(
     """Form di registrazione acquisto riutilizzabile. Ritorna True se aggiunto."""
     overrides = store.get_team_names()
     disp = lambda t: overrides.get(t, t)
+    taken = {p.nome.lower() for p in store.list_purchases()}
     giocatori = {}
     for pl in ref.players:
-        if pl.fuori_lista or pl.nome in giocatori:
+        if pl.fuori_lista or pl.nome in giocatori or pl.nome.lower() in taken:
             continue
         giocatori[pl.nome] = pl
     nomi = sorted(giocatori)
@@ -245,9 +244,10 @@ def page_registra(ref: fe.ReferenceData, store: SQLitePurchaseStore, my_team: st
     st.header("Registra un acquisto")
     overrides = store.get_team_names()
     disp = lambda t: overrides.get(t, t)
+    taken = {p.nome.lower() for p in store.list_purchases()}
     giocatori = {}
     for pl in ref.players:
-        if pl.fuori_lista or pl.nome in giocatori:
+        if pl.fuori_lista or pl.nome in giocatori or pl.nome.lower() in taken:
             continue
         giocatori[pl.nome] = pl
     nomi_giocatori = sorted(giocatori)
@@ -332,62 +332,30 @@ def page_dashboard(
                 st.write("- " + msg)
 
     mia_rosa = [p for p in store.list_purchases() if p.squadra == my_team]
-    st.subheader(f"La mia rosa ({len(mia_rosa)})")
-    if not mia_rosa:
-        st.info("Non hai ancora acquistato giocatori.")
-    else:
-        rows = []
-        tot = 0
-        for p in mia_rosa:
-            tot += int(p.costo)
-            idx = ref.by_name.get(p.nome.lower())
-            pl = ref.players[idx] if idx is not None else None
-            if pl is not None:
-                ruoli = " ".join(
-                    role_badge(fe.RUOLI[i], pl.ratings[i])
-                    for i in range(fe.NUM_RUOLI)
-                    if pl.ratings[i] >= 0
-                )
-                sq_reale = f"{logo_img_html(pl.squadra_reale)}{escape(pl.squadra_reale or '')}"
-            else:
-                ruoli = ""
-                sq_reale = ""
-            rows.append(
-                f"<tr><td>{escape(p.nome)}</td>"
-                f"<td style='white-space:nowrap'>{sq_reale}</td>"
-                f"<td>{ruoli}</td>"
-                f"<td style='text-align:right'>{int(p.costo)}</td></tr>"
-            )
-        st.markdown(
-            html_table(["Nome", "Squadra reale", "Ruoli", "Costo"], rows),
-            unsafe_allow_html=True,
-        )
-        st.caption(f"Spesa totale: {tot} crediti")
 
-    st.subheader("I miei giocatori per ruolo")
-    by_role = {r: [] for r in fe.RUOLI}
+    rows = []
+    tot = 0
     for p in mia_rosa:
+        tot += int(p.costo)
         idx = ref.by_name.get(p.nome.lower())
-        if idx is None:
-            continue
-        pl = ref.players[idx]
-        for i, r in enumerate(fe.RUOLI):
-            if pl.ratings[i] >= 0:
-                by_role[r].append((pl.nome, pl.ratings[i], pl.squadra_reale))
-    rows_r = []
-    for r in fe.RUOLI:
-        plist = sorted(by_role[r], key=lambda x: -x[1])
-        chips = ", ".join(
-            f"{logo_img_html(sq, 16)}{escape(nome)} ({rt:.1f})"
-            for nome, rt, sq in plist
+        pl = ref.players[idx] if idx is not None else None
+        if pl is not None:
+            ruoli = " ".join(
+                role_badge(fe.RUOLI[i], pl.ratings[i])
+                for i in range(fe.NUM_RUOLI)
+                if pl.ratings[i] >= 0
+            )
+            sq_reale = f"{logo_img_html(pl.squadra_reale)}{escape(pl.squadra_reale or '')}"
+        else:
+            ruoli = ""
+            sq_reale = ""
+        rows.append(
+            f"<tr><td>{escape(p.nome)}</td>"
+            f"<td style='white-space:nowrap'>{sq_reale}</td>"
+            f"<td>{ruoli}</td>"
+            f"<td style='text-align:right'>{int(p.costo)}</td></tr>"
         )
-        rows_r.append(
-            f"<tr><td style='white-space:nowrap'>{role_badge(r)}</td>"
-            f"<td>{chips}</td></tr>"
-        )
-    st.markdown(html_table(["Ruolo", "Giocatori"], rows_r), unsafe_allow_html=True)
 
-    st.subheader("Spesa media per ruolo (lega)")
     sums = {r: [0.0, 0] for r in fe.RUOLI}
     for p in store.list_purchases():
         idx = ref.by_name.get(p.nome.lower())
@@ -398,84 +366,118 @@ def page_dashboard(
             if pl.ratings[i] >= 0:
                 sums[r][0] += p.costo
                 sums[r][1] += 1
-    rows_avg = []
-    for r in fe.RUOLI:
-        tot, cnt = sums[r]
-        media = tot / cnt if cnt else 0
-        rows_avg.append(
-            f"<tr><td style='white-space:nowrap'>{role_badge(r)}</td>"
-            f"<td>{media:.1f}</td><td>{cnt}</td></tr>"
-        )
-    st.markdown(
-        html_table(["Ruolo", "Spesa media", "Acquisti"], rows_avg),
-        unsafe_allow_html=True,
-    )
 
-    st.subheader("Obiettivi")
-    obiettivi = store.get_notes(note_owner)
-    with st.expander("Aggiungi / modifica un obiettivo"):
-        tutti_o = sorted({pl.nome for pl in ref.players})
-        target = st.selectbox(
-            "Giocatore", tutti_o, index=None,
-            placeholder="Scegli un giocatore...", key="obj_sel",
+    by_role = {r: [] for r in fe.RUOLI}
+    for p in mia_rosa:
+        idx = ref.by_name.get(p.nome.lower())
+        if idx is None:
+            continue
+        pl = ref.players[idx]
+        for i, r in enumerate(fe.RUOLI):
+            if pl.ratings[i] >= 0:
+                by_role[r].append((pl.nome, pl.ratings[i], pl.squadra_reale, int(p.costo)))
+    rows_r = []
+    for r in fe.RUOLI:
+        plist = sorted(by_role[r], key=lambda x: -x[1])
+        chips = ", ".join(
+            f"{logo_img_html(sq, 16)}{escape(nome)} ({rt:.1f}, {cost}cr)"
+            for nome, rt, sq, cost in plist
         )
-        if target:
-            nota_obj = st.text_area(
-                "Nota", value=obiettivi.get(target, ""), key=f"obj_nota_{target}"
+        totr, cnt = sums[r]
+        media = totr / cnt if cnt else 0
+        rows_r.append(
+            f"<tr><td style='white-space:nowrap'>{role_badge(r)}</td>"
+            f"<td>{chips}</td>"
+            f"<td>{media:.1f}</td></tr>"
+        )
+
+    left, right = st.columns(2)
+    with left:
+        vista = st.radio(
+            "Vista", ["Lista", "Per ruolo"], horizontal=True, key="rosa_view"
+        )
+        st.subheader(f"La mia rosa ({len(mia_rosa)})")
+        if not mia_rosa:
+            st.info("Non hai ancora acquistato giocatori.")
+        elif vista == "Lista":
+            st.markdown(
+                html_table(["Nome", "Squadra reale", "Ruoli", "Costo"], rows),
+                unsafe_allow_html=True,
             )
-            oc1, oc2 = st.columns([1, 1])
-            if oc1.button("Salva obiettivo"):
-                store.set_note(note_owner, target, nota_obj or "obiettivo")
-                st.rerun()
-            if obiettivi.get(target) and oc2.button("Rimuovi obiettivo"):
-                store.set_note(note_owner, target, "")
-                st.rerun()
-    if not obiettivi:
-        st.caption(
-            "Nessun obiettivo salvato. Aggiungine uno qui o annota un giocatore dal Listone."
-        )
-    else:
-        ov = store.get_team_names()
-        presi = {p.nome.lower(): p.squadra for p in store.list_purchases()}
-        rows_o = []
-        for nome_o, nota_o in sorted(obiettivi.items()):
-            idx = ref.by_name.get(nome_o.lower())
-            pl = ref.players[idx] if idx is not None else None
-            if pl is not None:
-                ruoli = " ".join(
-                    role_badge(fe.RUOLI[i], pl.ratings[i])
-                    for i in range(fe.NUM_RUOLI)
-                    if pl.ratings[i] >= 0
-                )
-                sq_reale = f"{logo_img_html(pl.squadra_reale)}{escape(pl.squadra_reale or '')}"
-            else:
-                ruoli = ""
-                sq_reale = ""
-            preso = presi.get(nome_o.lower())
-            if preso is not None:
-                stato_o = (
-                    "<span style='background:#c62828;color:#fff;padding:2px 6px;"
-                    "border-radius:4px;font-size:12px;font-weight:600'>"
-                    f"{escape(ov.get(preso, preso))}</span>"
-                )
-            else:
-                stato_o = (
-                    "<span style='background:#2e7d32;color:#fff;padding:2px 6px;"
-                    "border-radius:4px;font-size:12px;font-weight:600'>libero</span>"
-                )
-            rows_o.append(
-                f"<tr><td>{escape(nome_o)}</td>"
-                f"<td style='white-space:nowrap'>{sq_reale}</td>"
-                f"<td>{ruoli}</td>"
-                f"<td style='white-space:nowrap'>{stato_o}</td>"
-                f"<td>{escape(nota_o)}</td></tr>"
+            st.caption(f"Spesa totale: {tot} crediti")
+        else:
+            st.markdown(
+                html_table(
+                    ["Ruolo", "Giocatori", "Prezzo medio (lega)"], rows_r
+                ),
+                unsafe_allow_html=True,
             )
-        st.markdown(
-            html_table(
-                ["Giocatore", "Squadra reale", "Ruoli", "Stato", "Nota"], rows_o
-            ),
-            unsafe_allow_html=True,
-        )
+    with right:
+        st.subheader("Obiettivi")
+        obiettivi = store.get_notes(note_owner)
+        with st.expander("Aggiungi / modifica un obiettivo"):
+            tutti_o = sorted({pl.nome for pl in ref.players})
+            target = st.selectbox(
+                "Giocatore", tutti_o, index=None,
+                placeholder="Scegli un giocatore...", key="obj_sel",
+            )
+            if target:
+                nota_obj = st.text_area(
+                    "Nota", value=obiettivi.get(target, ""), key=f"obj_nota_{target}"
+                )
+                oc1, oc2 = st.columns([1, 1])
+                if oc1.button("Salva obiettivo"):
+                    store.set_note(note_owner, target, nota_obj or "obiettivo")
+                    st.rerun()
+                if obiettivi.get(target) and oc2.button("Rimuovi obiettivo"):
+                    store.set_note(note_owner, target, "")
+                    st.rerun()
+        if not obiettivi:
+            st.caption(
+                "Nessun obiettivo salvato. Aggiungine uno qui o annota un giocatore dal Listone."
+            )
+        else:
+            ov = store.get_team_names()
+            presi = {p.nome.lower(): p.squadra for p in store.list_purchases()}
+            rows_o = []
+            for nome_o, nota_o in sorted(obiettivi.items()):
+                idx = ref.by_name.get(nome_o.lower())
+                pl = ref.players[idx] if idx is not None else None
+                if pl is not None:
+                    ruoli = " ".join(
+                        role_badge(fe.RUOLI[i], pl.ratings[i])
+                        for i in range(fe.NUM_RUOLI)
+                        if pl.ratings[i] >= 0
+                    )
+                    sq_reale = f"{logo_img_html(pl.squadra_reale)}{escape(pl.squadra_reale or '')}"
+                else:
+                    ruoli = ""
+                    sq_reale = ""
+                preso = presi.get(nome_o.lower())
+                if preso is not None:
+                    stato_o = (
+                        "<span style='background:#c62828;color:#fff;padding:2px 6px;"
+                        "border-radius:4px;font-size:12px;font-weight:600'>"
+                        f"{escape(ov.get(preso, preso))}</span>"
+                    )
+                else:
+                    stato_o = (
+                        "<span style='background:#2e7d32;color:#fff;padding:2px 6px;"
+                        "border-radius:4px;font-size:12px;font-weight:600'>libero</span>"
+                    )
+                rows_o.append(
+                    f"<tr><td>{escape(nome_o)}</td>"
+                    f"<td style='white-space:nowrap'>{sq_reale}</td>"
+                    f"<td>{ruoli}</td>"
+                    f"<td style='white-space:nowrap'>{stato_o}</td>"
+                    f"<td>{escape(nota_o)}</td></tr>"
+                )
+            st.markdown(
+                html_table(
+                    ["Giocatore", "Squadra reale", "Ruoli", "Stato", "Nota"], rows_o
+                ),
+                unsafe_allow_html=True,
+            )
 
     if not res.module_ranking:
         return
@@ -554,10 +556,69 @@ def page_campetto(ref: fe.ReferenceData, store: SQLitePurchaseStore, my_team: st
     coperti = sum(1 for s in pitch if s.starter_name)
     st.caption(f"Totale rating {total:.2f} | slot coperti {coperti}/11 | rosa {len(state.rosa)} giocatori")
 
-    st.pyplot(draw_pitch(pitch, module_name))
+    cL, cR = st.columns([1, 1])
+    with cL:
+        st.pyplot(draw_pitch(pitch, module_name))
+    with cR:
+        st.subheader("Giocatori schierati")
+        rows_f = []
+        for s in pitch:
+            ruoli_slot = " ".join(role_badge(r) for r in s.slot_text.split("/"))
+            titolare = escape(s.starter_name) if s.starter_name else "(scoperto)"
+            pts = f"{s.starter_points:.1f}" if s.starter_name else ""
+            rows_f.append(
+                f"<tr><td style='white-space:nowrap'>{ruoli_slot}</td>"
+                f"<td>{titolare}</td><td>{pts}</td></tr>"
+            )
+        st.markdown(
+            html_table(["Ruoli", "Titolare", "Rating"], rows_f),
+            unsafe_allow_html=True,
+        )
 
     st.subheader(f"In rosa ma non impiegabili in questo modulo ({len(fuori)})")
     st.write(", ".join(fuori) if fuori else "nessuno")
+
+
+def page_rose(ref: fe.ReferenceData, store: SQLitePurchaseStore):
+    st.header("Rose")
+    overrides = store.get_team_names()
+    disp = lambda t: overrides.get(t, t)
+    by_team = {t: [] for t in ref.teams}
+    for p in store.list_purchases():
+        by_team.setdefault(p.squadra, []).append(p)
+    for t in ref.teams:
+        plist = sorted(by_team.get(t, []), key=lambda x: -x.costo)
+        spesa = sum(int(p.costo) for p in plist)
+        residui = fe.CREDITI - spesa
+        with st.container(border=True):
+            c1, c2, c3 = st.columns([3, 1, 1])
+            c1.subheader(disp(t))
+            c2.metric("Crediti residui", residui)
+            c3.metric("Giocatori", len(plist))
+            if plist:
+                rows = []
+                for p in plist:
+                    idx = ref.by_name.get(p.nome.lower())
+                    pl = ref.players[idx] if idx is not None else None
+                    ruoli = ""
+                    logo = ""
+                    if pl is not None:
+                        ruoli = " ".join(
+                            role_badge(fe.RUOLI[i])
+                            for i in range(fe.NUM_RUOLI)
+                            if pl.ratings[i] >= 0
+                        )
+                        logo = logo_img_html(pl.squadra_reale, 16)
+                    rows.append(
+                        f"<tr><td>{logo}{escape(p.nome)}</td><td>{ruoli}</td>"
+                        f"<td style='text-align:right'>{int(p.costo)}</td></tr>"
+                    )
+                st.markdown(
+                    html_table(["Giocatore", "Ruoli", "Costo"], rows),
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.caption("Nessun giocatore.")
 
 
 def page_listone(
@@ -699,7 +760,8 @@ def main():
                     st.rerun()
 
     page = st.sidebar.radio(
-        "Pagina", ["Dashboard", "Registra acquisto", "Campetto", "Listone"],
+        "Pagina",
+        ["Dashboard", "Registra acquisto", "Campetto", "Rose", "Listone"],
         key="nav_page",
     )
 
@@ -745,6 +807,8 @@ def main():
         page_registra(ref, store, my_team, role)
     elif page == "Campetto":
         page_campetto(ref, store, my_team)
+    elif page == "Rose":
+        page_rose(ref, store)
     else:
         page_listone(ref, store, note_owner)
 
