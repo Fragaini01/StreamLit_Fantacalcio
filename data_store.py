@@ -13,10 +13,16 @@ e agli stop). Per un'asta condivisa realmente persistente usare un backend ester
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 import threading
 from dataclasses import dataclass
 from typing import Optional, Protocol
+
+
+def _hash_password(password: str) -> str:
+    """Hash della password (SHA-256) per la persistenza sicura."""
+    return hashlib.sha256((password or "").encode("utf-8")).hexdigest()
 
 
 @dataclass
